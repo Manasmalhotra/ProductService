@@ -1,5 +1,8 @@
 package com.example.productservice.service.impl;
 
+import co.elastic.clients.elasticsearch.ElasticsearchClient;
+import co.elastic.clients.elasticsearch._types.query_dsl.Query;
+import co.elastic.clients.elasticsearch.core.SearchResponse;
 import com.example.productservice.dto.ProductRequestDTO;
 import com.example.productservice.dto.ProductResponseDTO;
 import com.example.productservice.exceptions.InvalidDataException;
@@ -11,29 +14,56 @@ import com.example.productservice.repository.PriceRepository;
 import com.example.productservice.repository.ProductRepository;
 import com.example.productservice.repository.SearchRepository;
 import com.example.productservice.service.ProductService;
+import com.example.productservice.util.ESUtil;
+import com.example.productservice.util.Mappers;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Supplier;
+
+import static com.example.productservice.util.Mappers.*;
 
 @Service
 public class ProductServiceImpl implements ProductService {
     ProductRepository productRepository;
     PriceRepository priceRepository;
     SearchRepository searchRepository;
-    public ProductServiceImpl(ProductRepository productRepository,PriceRepository priceRepository,SearchRepository searchRepository){
+    @Autowired
+    ElasticsearchClient elasticsearchClient;
+    RedisTemplate<String, SearchProducts> redisTemplate;
+
+    public ProductServiceImpl(ProductRepository productRepository,PriceRepository priceRepository,SearchRepository searchRepository
+    ,RedisTemplate redisTemplate){
         this.productRepository=productRepository;
         this.searchRepository=searchRepository;
         this.priceRepository=priceRepository;
-    }
-    public Iterable<SearchProducts> getAllProducts() {
-         return searchRepository.findAll();
+        this.redisTemplate=redisTemplate;
     }
 
+    private Map<String,Object> parseRequestProperties(ProductRequestDTO productRequest) {
+        ObjectMapper objectMapper = new ObjectMapper();
+        ProductType productType=productRequest.getProductType();
+        try {
+            Map<String,Object>propertyMap=objectMapper.readValue(productRequest.getObjectProperties(), Map.class);
+            for( String property: productType.getProperties()){
+                if(!propertyMap.containsKey(property)) {
+                    return null;
+                }
+            }
+            return propertyMap;
+        } catch (IOException e) {
+            // Handle exception (e.g., log it or throw a specific exception)
+            e.printStackTrace();
+            return null;
+        }
+    }
     public ProductResponseDTO addProduct(ProductRequestDTO productRequest) {
         System.out.println("PRODUCT PROPERTIES "+productRequest.getObjectProperties());
         Map<String,Object> propertyMap=parseRequestProperties(productRequest);
@@ -41,7 +71,7 @@ public class ProductServiceImpl implements ProductService {
             for (Map.Entry<String, Object> entry : propertyMap.entrySet()) {
                 System.out.println("Key: " + entry.getKey() + ", Value: " + entry.getValue());
             }
-            Product product = mapProductRequestToProduct(productRequest);
+            Product product = mapProductRequestToProduct(productRequest,priceRepository);
             productRepository.save(product);
             ProductResponseDTO productResponseDTO=mapProductRequestToProductResponse(productRequest);
             productResponseDTO.setId(product.getId());
@@ -55,63 +85,30 @@ public class ProductServiceImpl implements ProductService {
         }
     }
 
-    private SearchProducts mapProductRequestToSearchObject(ProductRequestDTO productRequest,Map<String,Object>propertyMap) {
-         SearchProducts searchProduct=new SearchProducts();
-         searchProduct.setProductProperties(propertyMap);
-         searchProduct.setProductType(productRequest.getProductType().getValue());
-         searchProduct.setBrand(productRequest.getBrand());
-         double mrp= productRequest.getMrp();
-         double discountPercentage= productRequest.getDiscountPercentage();
-         double finalAmount=mrp*(1-discountPercentage);
-         searchProduct.setAmount(finalAmount);
-         return searchProduct;
+    public Iterable<SearchProducts> getAllProducts() {
+
+        return searchRepository.findAll();
+    }
+    public SearchResponse<SearchProducts> matchAllProductsServices() throws IOException {
+        Supplier<Query> supplier  = ESUtil.supplier();
+        SearchResponse<SearchProducts> searchResponse = elasticsearchClient.search(s->s.index("searchproducts").query(supplier.get()),SearchProducts.class);
+        System.out.println("elasticsearch query is "+supplier.get().toString());
+        return searchResponse;
     }
 
-    private ProductResponseDTO mapProductRequestToProductResponse(ProductRequestDTO productRequest) {
-        ProductResponseDTO productResponse=new ProductResponseDTO();
-        productResponse.setMrp(productRequest.getMrp());
-        productResponse.setProductType(productRequest.getProductType().getValue());
-        productResponse.setQuantity(productRequest.getQuantity());
-        productResponse.setBrand(productRequest.getBrand());
-        productResponse.setInStock(true);
-        productResponse.setTitle(productRequest.getTitle());
-        productResponse.setDescription(productRequest.getDescription());
-        productResponse.setObjectProperties(productRequest.getObjectProperties());
-        productResponse.setQuantity(productRequest.getQuantity());
-        return productResponse;
+    public SearchResponse<SearchProducts> multiMatch(String key,List<String>fields) throws IOException {
+        Supplier<Query>supplier= ESUtil.supplierQueryForMultiMatchQuery(key, fields);
+        SearchResponse<SearchProducts> searchResponse=elasticsearchClient.search(s->s.index("searchproducts").query(supplier.get()),SearchProducts.class);
+        System.out.println("ES Query "+supplier.get().toString());
+        return searchResponse;
+    }
+    public Iterable<SearchProducts> search (String query){
+
+        return searchRepository.findByProductPropertiesValue(query);
+    }
+    @Override
+    public Iterable<SearchProducts> getAllProductsByBrand(String brand) {
+        return searchRepository.findAllByBrand(brand);
     }
 
-    private Product mapProductRequestToProduct(ProductRequestDTO productRequest) {
-        Product product=new Product();
-        product.setProductType(productRequest.getProductType());
-        product.setDescription(productRequest.getDescription());
-        product.setBrand(productRequest.getBrand());
-        Price price=new Price();
-        price.setAmount(productRequest.getMrp());
-        price.setDiscountPercentage(productRequest.getDiscountPercentage());
-        Price savedPrice=priceRepository.save(price);
-        product.setPrice(savedPrice);
-        product.setInStock(true);
-        product.setTitle(productRequest.getTitle());
-        product.setQuantity(productRequest.getQuantity());
-        return product;
-    }
-
-    private Map<String,Object> parseRequestProperties(ProductRequestDTO productRequest) {
-        ObjectMapper objectMapper = new ObjectMapper();
-        ProductType productType=productRequest.getProductType();
-        try {
-                Map<String,Object>propertyMap=objectMapper.readValue(productRequest.getObjectProperties(), Map.class);
-                for( String property: productType.getProperties()){
-                    if(!propertyMap.containsKey(property)) {
-                        return null;
-                    }
-                }
-                return propertyMap;
-        } catch (IOException e) {
-                // Handle exception (e.g., log it or throw a specific exception)
-                e.printStackTrace();
-                return null;
-            }
-        }
 }
