@@ -1,0 +1,21 @@
+spring:
+  datasource:
+    url: jdbc:mysql://localhost:3306/ecommerce?sessionVariables=sql_mode='NO_ENGINE_SUBSTITUTION'&jdbcCompliantTruncation=false
+    username: root
+    password: Manas@65
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+  data:
+    elasticsearch:
+      cluster-names: searchproducts
+      cluster-node: localhost:9200
+    redis:
+      port: 6379
+      host: localhost
+  redis:
+    maxmemory-samples: 10
+    maxmemory-policy: allkeys-lru
+  main:
+    allow-bean-definition-overriding: true

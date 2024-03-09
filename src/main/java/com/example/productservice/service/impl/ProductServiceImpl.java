@@ -1,12 +1,8 @@
 package com.example.productservice.service.impl;
 
-import co.elastic.clients.elasticsearch.ElasticsearchClient;
-import co.elastic.clients.elasticsearch._types.query_dsl.Query;
-import co.elastic.clients.elasticsearch.core.SearchResponse;
 import com.example.productservice.dto.ProductRequestDTO;
 import com.example.productservice.dto.ProductResponseDTO;
 import com.example.productservice.exceptions.InvalidDataException;
-import com.example.productservice.models.Price;
 import com.example.productservice.models.Product;
 import com.example.productservice.models.ProductType;
 import com.example.productservice.models.SearchProducts;
@@ -14,19 +10,12 @@ import com.example.productservice.repository.PriceRepository;
 import com.example.productservice.repository.ProductRepository;
 import com.example.productservice.repository.SearchRepository;
 import com.example.productservice.service.ProductService;
-import com.example.productservice.util.ESUtil;
-import com.example.productservice.util.Mappers;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
-import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
-import java.util.function.Supplier;
 
 import static com.example.productservice.util.Mappers.*;
 
@@ -35,8 +24,6 @@ public class ProductServiceImpl implements ProductService {
     ProductRepository productRepository;
     PriceRepository priceRepository;
     SearchRepository searchRepository;
-    @Autowired
-    ElasticsearchClient elasticsearchClient;
     RedisTemplate<String, SearchProducts> redisTemplate;
 
     public ProductServiceImpl(ProductRepository productRepository,PriceRepository priceRepository,SearchRepository searchRepository
@@ -89,22 +76,16 @@ public class ProductServiceImpl implements ProductService {
 
         return searchRepository.findAll();
     }
-    public SearchResponse<SearchProducts> matchAllProductsServices() throws IOException {
-        Supplier<Query> supplier  = ESUtil.supplier();
-        SearchResponse<SearchProducts> searchResponse = elasticsearchClient.search(s->s.index("searchproducts").query(supplier.get()),SearchProducts.class);
-        System.out.println("elasticsearch query is "+supplier.get().toString());
-        return searchResponse;
-    }
 
-    public SearchResponse<SearchProducts> multiMatch(String key,List<String>fields) throws IOException {
-        Supplier<Query>supplier= ESUtil.supplierQueryForMultiMatchQuery(key, fields);
-        SearchResponse<SearchProducts> searchResponse=elasticsearchClient.search(s->s.index("searchproducts").query(supplier.get()),SearchProducts.class);
-        System.out.println("ES Query "+supplier.get().toString());
-        return searchResponse;
-    }
     public Iterable<SearchProducts> search (String query){
-
-        return searchRepository.findByProductPropertiesValue(query);
+        Iterable<SearchProducts> searchResult = (Iterable<SearchProducts>) redisTemplate.opsForHash().get(String.valueOf(1),query);
+        if(searchResult!=null){
+            System.out.println("Cache Hit");
+            return searchResult;
+        }
+        searchResult=searchRepository.findByProductPropertiesValue(query);
+        redisTemplate.opsForHash().put(String.valueOf(1), query,searchResult);
+        return searchResult;
     }
     @Override
     public Iterable<SearchProducts> getAllProductsByBrand(String brand) {

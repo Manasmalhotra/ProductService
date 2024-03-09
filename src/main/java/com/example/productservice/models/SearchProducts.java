@@ -7,6 +7,7 @@ import org.springframework.data.elasticsearch.annotations.Field;
 import org.springframework.data.elasticsearch.annotations.FieldType;
 import org.springframework.data.elasticsearch.annotations.InnerField;
 
+import java.io.Serializable;
 import java.util.Map;
 
 import static co.elastic.clients.elasticsearch.cat.CatDfaColumn.Type;
@@ -15,7 +16,7 @@ import static co.elastic.clients.elasticsearch.cat.CatDfaColumn.Type;
 @NoArgsConstructor
 @Data
 @Document(indexName = "searchproducts")
-public class SearchProducts {
+public class SearchProducts implements Serializable {
     @Id
     int id;
     @Field(type = FieldType.Object)
