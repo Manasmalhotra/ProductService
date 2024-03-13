@@ -1,7 +1,7 @@
 # E-commerce Product Service
 Welcome to the Product Service of my E-Commerce Project!
 
-This service deals with managing users and their authentication.
+This service deals with managing product listings and searching for products.
 
 Links to other services:
 
