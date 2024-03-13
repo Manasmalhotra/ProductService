@@ -1,5 +1,5 @@
 # E-commerce Product Service
-Welcome to the User Service of my Ecommerce Service!
+Welcome to the Product Service of my E-Commerce Project!
 
 This service deals with managing users and their authentication.
 
